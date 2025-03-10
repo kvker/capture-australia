@@ -205,6 +205,7 @@ function fireCannonIfReady() {
     return
   }
 
+  // 更新最后射击时间
   lastShootTime = now
 
   // 计算从船只到鼠标的距离和方向
@@ -223,6 +224,16 @@ function fireCannonIfReady() {
     y: selfShip.y,
     targetX: targetX,
     targetY: targetY
+  })
+
+  // 调试输出
+  console.log("发射炮弹:", {
+    from: {x: selfShip.x, y: selfShip.y},
+    to: {x: targetX, y: targetY},
+    angle: angle,
+    distance: distance,
+    cooldown: shootCooldown,
+    lastShootTime: lastShootTime
   })
 }
 
@@ -566,7 +577,11 @@ function onPlayerMoved(data) {
 
 // 玩家射击
 function onPlayerShot(data) {
-  createBullet(data.x, data.y, data.targetX, data.targetY, data.id)
+  // 调试输出
+  console.log("收到射击事件:", data)
+
+  // 创建子弹
+  const bullet = createBullet(data.x, data.y, data.targetX, data.targetY, data.id)
 
   // 如果是自己射击，添加后坐力
   if (data.id === selfId && selfShip) {
@@ -1069,6 +1084,11 @@ function handleInput(delta) {
 
 // 更新所有子弹
 function updateBullets(delta) {
+  // 调试输出子弹数量
+  if (bullets.length > 0) {
+    console.log("当前子弹数量:", bullets.length)
+  }
+
   for (let i = bullets.length - 1; i >= 0; i--) {
     const bullet = bullets[i]
 
@@ -1086,6 +1106,9 @@ function updateBullets(delta) {
       // 移除子弹
       worldContainer.removeChild(bullet)
       bullets.splice(i, 1)
+
+      // 调试输出
+      console.log("子弹到达目标，创建爆炸效果")
       continue
     }
 
@@ -1176,12 +1199,12 @@ function checkCollisions() {
           damage: bullet.damage
         })
 
+        // 创建爆炸效果（在船只位置）
+        createWaterExplosion(bullet.x, bullet.y)
+
         // 移除子弹
         worldContainer.removeChild(bullet)
         bullets.splice(i, 1)
-
-        // 创建小爆炸效果
-        createSmallExplosion(bullet.x, bullet.y)
 
         break
       }
