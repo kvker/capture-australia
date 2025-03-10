@@ -36,6 +36,7 @@ let isAimingMode = false // 是否处于瞄准模式
 const BULLET_FLIGHT_TIME = 2 // 炮弹飞行时间（秒）
 const EXPLOSION_RADIUS = 20 // 爆炸半径
 const EXPLOSION_DURATION = 0.3 // 爆炸持续时间（秒）
+let joinPending = false // 是否正在等待加入游戏的响应
 
 // DOM元素
 const loginScreen = document.getElementById('loginScreen')
@@ -119,6 +120,7 @@ function setupEventListeners() {
   socket.on('playerRespawned', onPlayerRespawned)
   socket.on('collisionOccurred', onCollision)
   socket.on('playerInfo', onPlayerInfo)
+  socket.on('joinError', onJoinError)
 
   // 开始游戏按钮
   startButton.addEventListener('click', startGame)
@@ -128,6 +130,16 @@ function setupEventListeners() {
     if (e.key === 'Enter') {
       startGame()
     }
+  })
+
+  // 心跳请求处理
+  socket.on('heartbeatRequest', () => {
+    socket.emit('heartbeat')
+  })
+
+  // 玩家数量更新
+  socket.on('playerCount', (data) => {
+    document.getElementById('playerCount').textContent = data.count
   })
 
   // 调试信息
@@ -248,21 +260,42 @@ function startGame() {
     return
   }
 
-  // 隐藏登录界面
+  // 如果已经在等待响应，不要重复发送
+  if (joinPending) return
+
+  // 标记为正在等待响应
+  joinPending = true
+
+  // 禁用输入框和按钮，防止重复提交
+  playerId.disabled = true
+  startButton.disabled = true
+
+  // 加入游戏，但不立即隐藏登录界面
+  // 等待服务器响应后再决定是否隐藏
+  socket.emit('join', id)
+
+  // 设置一个标志，表示正在等待服务器响应
+  startButton.textContent = '正在连接...'
+}
+
+// 游戏状态初始化
+function onGameState(data) {
+  // 如果不是在等待加入游戏的响应，忽略此消息
+  // 这可能是服务器发送的其他游戏状态更新
+  if (!joinPending) return;
+
+  // 重置等待标志
+  joinPending = false;
+
+  // 收到游戏状态，表示成功加入游戏
+  // 现在可以隐藏登录界面
   loginScreen.style.display = 'none'
   gameInfo.style.display = 'block'
   miniMap.style.display = 'block'
   worldBoundaryInfo.style.display = 'block'
 
-  // 加入游戏
-  socket.emit('join', id)
-
+  // 设置游戏已开始标志
   gameStarted = true
-}
-
-// 游戏状态初始化
-function onGameState(data) {
-  console.log(`收到游戏状态, 玩家数量: ${Object.keys(data.players).length}`)
 
   // 保存世界尺寸
   worldWidth = data.worldWidth
@@ -273,7 +306,6 @@ function onGameState(data) {
 
   // 保存自己的ID
   selfId = data.selfId
-  console.log(`自己的ID: ${selfId}`)
 
   // 创建海洋背景
   createOcean()
@@ -283,13 +315,11 @@ function onGameState(data) {
 
   // 创建所有玩家
   for (const id in data.players) {
-    console.log(`创建玩家: ${id}, 玩家ID: ${data.players[id].id}`)
     createShip(id, data.players[id])
   }
 
   // 更新玩家数量
   updatePlayerCount()
-  console.log(`当前玩家数量: ${Object.keys(ships).length}`)
 
   // 初始化小地图
   initMiniMap()
@@ -559,50 +589,36 @@ function createShip(id, playerData) {
 
 // 玩家加入
 function onPlayerJoined(data) {
-  console.log(`玩家加入: ${data.id}, 玩家ID: ${data.player.id}`)
-
   // 检查玩家是否已存在
   if (ships[data.id]) {
-    console.log(`玩家已存在，更新位置: ${data.id}`)
     ships[data.id].x = data.player.x
     ships[data.id].y = data.player.y
     ships[data.id].ship.rotation = data.player.rotation
     ships[data.id].playerData = data.player
     updateHealthBar(ships[data.id])
   } else {
-    console.log(`创建新玩家: ${data.id}`)
     createShip(data.id, data.player)
   }
 
   updatePlayerCount()
-  console.log(`当前玩家数量: ${Object.keys(ships).length}`)
 }
 
 // 玩家离开
 function onPlayerLeft(data) {
-  console.log(`玩家离开: ${data.id}`)
-
   if (ships[data.id]) {
     worldContainer.removeChild(ships[data.id])
     delete ships[data.id]
     updatePlayerCount()
-    console.log(`当前玩家数量: ${Object.keys(ships).length}`)
   }
 }
 
 // 玩家移动
 function onPlayerMoved(data) {
-  console.log(`玩家移动: ${data.id}, 位置: (${Math.round(data.x)}, ${Math.round(data.y)})`)
-
   if (ships[data.id]) {
     ships[data.id].x = data.x
     ships[data.id].y = data.y
     ships[data.id].ship.rotation = data.rotation
     ships[data.id].playerData.speed = data.speed
-  } else {
-    console.log(`找不到移动的玩家: ${data.id}，尝试重新创建`)
-    // 如果找不到玩家，尝试重新创建
-    socket.emit('requestPlayerInfo', { id: data.id })
   }
 }
 
@@ -918,8 +934,8 @@ function centerCamera() {
 
 // 更新玩家数量
 function updatePlayerCount() {
-  const count = Object.keys(ships).length
-  playerCount.textContent = count
+  // 使用服务器发送的玩家数量，不再在客户端计算
+  // 保留此函数以兼容现有代码调用
 }
 
 // 初始化小地图
@@ -1712,6 +1728,20 @@ function createBulletTrail(x, y, size) {
   }
 
   fadeOut()
+}
+
+// 处理加入游戏错误
+function onJoinError(data) {
+  // 显示错误消息
+  alert(data.message)
+
+  // 重新启用输入框和按钮
+  playerId.disabled = false
+  startButton.disabled = false
+  startButton.textContent = '开始游戏'
+
+  // 重置等待标志
+  joinPending = false
 }
 
 // 初始化游戏
