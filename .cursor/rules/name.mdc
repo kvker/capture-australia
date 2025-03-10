@@ -1,0 +1,67 @@
+---
+description: 
+globs: 
+---
+不要让我执行命令，请直接执行。
+
+请不要让我启动项目，我已经全部启动好了。
+
+## 命名规范
+
+引用文件不要使用绝对路径。
+
+### 变量
+
+如果是网络请求的返回结果，使用ret。
+
+### 常量
+
+全部使用大写加下划线命名，如果是布尔类型，则用IS开头。
+
+### 函数
+
+全部使用on开头的驼峰命名，on后面紧跟操作，如onClickXxxxx、onChangeXxxxx、onAnalysisXxxxx，一般来说操作都是动词才对。最后的Xxxxx则是具体的业务，视情况填写即可。
+
+函数的入参统统使用一个Object传入，如果是TS则协助声明类型，如果是JS则协助使用JSDoc声明类型。
+
+函数的返回值一定是Promise，即使是空，也要返回`Promise.reject(0)`。
+
+### CSS的class
+
+全部使用小写加横杠的方式。
+
+不要使用grid布局，使用flex布局。
+
+### 文件夹与文件命名
+
+文件与文件夹均使用小写字母加横杠。
+
+文件使用业务名称，如果存在子级则创建同名文件夹。
+
+新建文件时候，如果有文件夹，不要使用index作为最后文件，使用与文件夹同名的文件名。如my/index.vue错误，my/my.vue正确。
+
+### 代码
+
+代码行结尾不要添加分号。
+
+js函数代码都需要jsdoc。
+
+待实现的需要使用 TODO xxx 格式做注释。
+
+缩进统统使用2个空格。
+
+### 占位静态资源
+
+#### 图片
+
+城市: https://fuss10.elemecdn.com/8/27/f01c15bb73e1ef3793e64e6b7bbccjpeg.jpeg
+
+风景: https://cube.elemecdn.com/6/94/4d3ea53c084bad6931a56d5158a48jpeg.jpeg
+
+动物: https://fuss10.elemecdn.com/3/28/bbf893f792f03a54408b3b7a7ebf0jpeg.jpeg
+
+#### 视频
+
+大自然: http://vjs.zencdn.net/v/oceans.mp4
+
+动画片: https://media.w3.org/2010/05/sintel/trailer.mp4

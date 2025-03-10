@@ -74,6 +74,28 @@
       border-radius: 5px;
       z-index: 5;
     }
+    #miniMap {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      width: 150px;
+      height: 100px;
+      background-color: rgba(0, 0, 0, 0.5);
+      border: 2px solid white;
+      border-radius: 5px;
+      z-index: 5;
+    }
+    #worldBoundaryInfo {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      color: white;
+      font-size: 14px;
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 10px;
+      border-radius: 5px;
+      z-index: 5;
+    }
   </style>
 </head>
 
@@ -92,6 +114,12 @@
       <div>血量: <span id="healthValue">100</span></div>
       <div>速度: <span id="speedValue">0</span></div>
       <div>在线玩家: <span id="playerCount">0</span></div>
+      <div>坐标: <span id="positionValue">(0, 0)</span></div>
+    </div>
+    <div id="miniMap" style="display: none;"></div>
+    <div id="worldBoundaryInfo" style="display: none;">
+      <div>世界大小: <span id="worldSizeValue">3000 x 2000</span></div>
+      <div>边界: 白色线条</div>
     </div>
   </div>
 

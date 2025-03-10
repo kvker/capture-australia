@@ -38,6 +38,10 @@ const gameInfo = document.getElementById('gameInfo')
 const healthValue = document.getElementById('healthValue')
 const speedValue = document.getElementById('speedValue')
 const playerCount = document.getElementById('playerCount')
+const positionValue = document.getElementById('positionValue')
+const miniMap = document.getElementById('miniMap')
+const worldBoundaryInfo = document.getElementById('worldBoundaryInfo')
+const worldSizeValue = document.getElementById('worldSizeValue')
 
 // 初始化游戏
 function initGame() {
@@ -112,6 +116,8 @@ function startGame() {
   // 隐藏登录界面
   loginScreen.style.display = 'none'
   gameInfo.style.display = 'block'
+  miniMap.style.display = 'block'
+  worldBoundaryInfo.style.display = 'block'
 
   // 加入游戏
   socket.emit('join', id)
@@ -124,6 +130,9 @@ function onGameState(data) {
   // 保存世界尺寸
   worldWidth = data.worldWidth
   worldHeight = data.worldHeight
+
+  // 更新世界大小显示
+  worldSizeValue.textContent = `${worldWidth} x ${worldHeight}`
 
   // 保存自己的ID
   selfId = data.selfId
@@ -141,6 +150,9 @@ function onGameState(data) {
 
   // 更新玩家数量
   updatePlayerCount()
+
+  // 初始化小地图
+  initMiniMap()
 }
 
 // 创建海洋背景
@@ -162,6 +174,73 @@ function createOcean() {
     wave.endFill()
     ocean.addChild(wave)
   }
+
+  // 添加世界边界线
+  const border = new PIXI.Graphics()
+  border.lineStyle(5, 0xFFFFFF, 0.8) // 5像素宽的白色边框，透明度0.8
+  border.drawRect(0, 0, worldWidth, worldHeight)
+
+  // 添加边界标记
+  // 四个角落添加标记
+  const cornerSize = 50
+
+  // 左上角
+  border.beginFill(0xFF0000, 0.7)
+  border.drawRect(0, 0, cornerSize, cornerSize / 5)
+  border.drawRect(0, 0, cornerSize / 5, cornerSize)
+  border.endFill()
+
+  // 右上角
+  border.beginFill(0xFF0000, 0.7)
+  border.drawRect(worldWidth - cornerSize, 0, cornerSize, cornerSize / 5)
+  border.drawRect(worldWidth - cornerSize / 5, 0, cornerSize / 5, cornerSize)
+  border.endFill()
+
+  // 左下角
+  border.beginFill(0xFF0000, 0.7)
+  border.drawRect(0, worldHeight - cornerSize / 5, cornerSize, cornerSize / 5)
+  border.drawRect(0, worldHeight - cornerSize, cornerSize / 5, cornerSize)
+  border.endFill()
+
+  // 右下角
+  border.beginFill(0xFF0000, 0.7)
+  border.drawRect(worldWidth - cornerSize, worldHeight - cornerSize / 5, cornerSize, cornerSize / 5)
+  border.drawRect(worldWidth - cornerSize / 5, worldHeight - cornerSize, cornerSize / 5, cornerSize)
+  border.endFill()
+
+  // 添加边界坐标文本
+  const textStyle = new PIXI.TextStyle({
+    fontFamily: 'Arial',
+    fontSize: 16,
+    fill: 0xFFFFFF,
+    stroke: 0x000000,
+    strokeThickness: 3,
+    dropShadow: true,
+    dropShadowColor: '#000000',
+    dropShadowBlur: 4,
+    dropShadowAngle: Math.PI / 6,
+    dropShadowDistance: 2,
+  })
+
+  // 添加四个角落的坐标
+  const topLeft = new PIXI.Text('(0, 0)', textStyle)
+  topLeft.position.set(10, 10)
+
+  const topRight = new PIXI.Text(`(${worldWidth}, 0)`, textStyle)
+  topRight.position.set(worldWidth - 100, 10)
+
+  const bottomLeft = new PIXI.Text(`(0, ${worldHeight})`, textStyle)
+  bottomLeft.position.set(10, worldHeight - 30)
+
+  const bottomRight = new PIXI.Text(`(${worldWidth}, ${worldHeight})`, textStyle)
+  bottomRight.position.set(worldWidth - 150, worldHeight - 30)
+
+  // 添加边界线和文本到海洋
+  ocean.addChild(border)
+  ocean.addChild(topLeft)
+  ocean.addChild(topRight)
+  ocean.addChild(bottomLeft)
+  ocean.addChild(bottomRight)
 
   worldContainer.addChild(ocean)
 }
@@ -567,6 +646,97 @@ function updatePlayerCount() {
   playerCount.textContent = count
 }
 
+// 初始化小地图
+function initMiniMap() {
+  // 创建小地图画布
+  const miniMapCanvas = document.createElement('canvas')
+  miniMapCanvas.width = 150
+  miniMapCanvas.height = 100
+  miniMap.appendChild(miniMapCanvas)
+
+  // 获取绘图上下文
+  const ctx = miniMapCanvas.getContext('2d')
+
+  // 绘制小地图背景
+  ctx.fillStyle = '#0a64a0'
+  ctx.fillRect(0, 0, miniMapCanvas.width, miniMapCanvas.height)
+
+  // 绘制边界
+  ctx.strokeStyle = 'white'
+  ctx.lineWidth = 2
+  ctx.strokeRect(0, 0, miniMapCanvas.width, miniMapCanvas.height)
+
+  // 保存小地图上下文
+  miniMap.ctx = ctx
+  miniMap.canvas = miniMapCanvas
+
+  // 计算缩放比例
+  miniMap.scaleX = miniMapCanvas.width / worldWidth
+  miniMap.scaleY = miniMapCanvas.height / worldHeight
+}
+
+// 更新小地图
+function updateMiniMap() {
+  if (!miniMap.ctx || !selfShip) return
+
+  const ctx = miniMap.ctx
+  const canvas = miniMap.canvas
+
+  // 清除小地图
+  ctx.fillStyle = '#0a64a0'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  // 绘制边界
+  ctx.strokeStyle = 'white'
+  ctx.lineWidth = 2
+  ctx.strokeRect(0, 0, canvas.width, canvas.height)
+
+  // 绘制岛屿
+  ctx.fillStyle = '#c2b280'
+  for (const island of islands) {
+    const x = island.x * miniMap.scaleX
+    const y = island.y * miniMap.scaleY
+    const radius = island.radius * miniMap.scaleX * 0.5
+
+    ctx.beginPath()
+    ctx.arc(x, y, radius, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // 绘制其他船只
+  ctx.fillStyle = '#83331a'
+  for (const id in ships) {
+    if (id === selfId) continue
+
+    const ship = ships[id]
+    const x = ship.x * miniMap.scaleX
+    const y = ship.y * miniMap.scaleY
+
+    ctx.beginPath()
+    ctx.arc(x, y, 3, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // 绘制自己的船只
+  if (selfShip) {
+    const x = selfShip.x * miniMap.scaleX
+    const y = selfShip.y * miniMap.scaleY
+
+    ctx.fillStyle = '#1a5a83'
+    ctx.beginPath()
+    ctx.arc(x, y, 4, 0, Math.PI * 2)
+    ctx.fill()
+
+    // 绘制视野范围
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    const viewRadius = (app.screen.width / 2) * miniMap.scaleX
+    ctx.arc(x, y, viewRadius, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+}
+
 // 游戏主循环
 function gameLoop(delta) {
   if (!gameStarted || !selfShip) return
@@ -585,6 +755,9 @@ function gameLoop(delta) {
 
   // 确保船只在世界范围内
   keepInWorld()
+
+  // 更新小地图
+  updateMiniMap()
 }
 
 // 处理玩家输入
@@ -633,6 +806,9 @@ function handleInput(delta) {
 
   // 更新速度显示
   speedValue.textContent = Math.abs(Math.round(speed * 10)) / 10
+
+  // 更新坐标显示
+  positionValue.textContent = `(${Math.round(selfShip.x)}, ${Math.round(selfShip.y)})`
 
   // 发送位置更新
   socket.emit('playerMove', {
