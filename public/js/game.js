@@ -34,6 +34,8 @@ let isMouseDown = false // 鼠标是否按下
 let mousePosition = { x: 0, y: 0 } // 鼠标位置
 let isAimingMode = false // 是否处于瞄准模式
 const BULLET_FLIGHT_TIME = 2 // 炮弹飞行时间（秒）
+const EXPLOSION_RADIUS = 20 // 爆炸半径
+const EXPLOSION_DURATION = 0.3 // 爆炸持续时间（秒）
 
 // DOM元素
 const loginScreen = document.getElementById('loginScreen')
@@ -1078,6 +1080,10 @@ function updateBullets(delta) {
 
     // 如果飞行结束
     if (progress >= 1) {
+      // 创建落水爆炸效果
+      createWaterExplosion(bullet.x, bullet.y)
+
+      // 移除子弹
       worldContainer.removeChild(bullet)
       bullets.splice(i, 1)
       continue
@@ -1541,6 +1547,95 @@ function drawAimingLine() {
 
   // 保存引用
   selfShip.aimingLine = aimingLine
+}
+
+// 创建落水爆炸效果
+function createWaterExplosion(x, y) {
+  // 创建爆炸容器
+  const explosion = new PIXI.Container()
+  explosion.x = x
+  explosion.y = y
+  worldContainer.addChild(explosion)
+
+  // 创建爆炸波纹
+  const ripple = new PIXI.Graphics()
+  explosion.addChild(ripple)
+
+  // 创建水花效果
+  for (let i = 0; i < 20; i++) {
+    const splash = new PIXI.Graphics()
+    splash.beginFill(0x88ccff)
+
+    // 随机大小的水滴
+    const size = 2 + Math.random() * 4
+    splash.drawCircle(0, 0, size)
+    splash.endFill()
+
+    // 随机位置和速度
+    const angle = Math.random() * Math.PI * 2
+    const distance = Math.random() * EXPLOSION_RADIUS * 0.8
+
+    splash.x = Math.cos(angle) * distance
+    splash.y = Math.sin(angle) * distance
+
+    // 随机初始透明度
+    splash.alpha = 0.6 + Math.random() * 0.4
+
+    explosion.addChild(splash)
+
+    // 水花动画 - 向外飞溅然后消失
+    const splashAnimation = () => {
+      splash.x += Math.cos(angle) * 1.5
+      splash.y += Math.sin(angle) * 1.5
+      splash.alpha -= 0.05
+
+      if (splash.alpha <= 0) {
+        explosion.removeChild(splash)
+      } else {
+        requestAnimationFrame(splashAnimation)
+      }
+    }
+
+    splashAnimation()
+  }
+
+  // 爆炸动画
+  let progress = 0
+  const animateExplosion = () => {
+    // 更新进度
+    progress += 1 / (EXPLOSION_DURATION * 60) // 假设60fps
+
+    // 绘制波纹
+    ripple.clear()
+
+    // 外圈 - 逐渐扩大并消失
+    const outerRadius = EXPLOSION_RADIUS * Math.min(progress * 1.2, 1)
+    const outerAlpha = Math.max(0, 1 - progress / 0.8)
+
+    ripple.lineStyle(3, 0x88ccff, outerAlpha)
+    ripple.drawCircle(0, 0, outerRadius)
+
+    // 内圈 - 水花区域
+    const innerRadius = EXPLOSION_RADIUS * 0.7 * Math.min(progress * 1.5, 1)
+    const innerAlpha = Math.max(0, 1 - progress / 0.6)
+
+    ripple.beginFill(0x88ccff, innerAlpha * 0.3)
+    ripple.drawCircle(0, 0, innerRadius)
+    ripple.endFill()
+
+    // 如果动画结束，移除爆炸效果
+    if (progress >= 1) {
+      worldContainer.removeChild(explosion)
+    } else {
+      requestAnimationFrame(animateExplosion)
+    }
+  }
+
+  // 开始动画
+  animateExplosion()
+
+  // 添加声音效果（如果有的话）
+  // playSound('splash');
 }
 
 // 初始化游戏
