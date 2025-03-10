@@ -508,6 +508,20 @@ function createShip(id, playerData) {
   shipContainer.addChild(healthBar)
   shipContainer.healthBar = healthBar
 
+  // 添加死亡标记（初始隐藏）
+  const deadMarker = new PIXI.Text("已沉没", {
+    fontFamily: 'Arial',
+    fontSize: 14,
+    fontWeight: 'bold',
+    fill: 0xff0000,
+    align: 'center'
+  });
+  deadMarker.anchor.set(0.5);
+  deadMarker.y = 0;
+  deadMarker.visible = false; // 初始隐藏
+  shipContainer.addChild(deadMarker);
+  shipContainer.deadMarker = deadMarker;
+
   // 保存玩家数据
   shipContainer.playerData = playerData
 
@@ -522,6 +536,9 @@ function createShip(id, playerData) {
     selfShip = shipContainer
     centerCamera()
   }
+
+  // 更新血条
+  updateHealthBar(shipContainer)
 
   return shipContainer
 }
@@ -626,6 +643,7 @@ function createBullet(x, y, targetX, targetY, shooterId) {
   bullet.flightTime = 0
   bullet.totalFlightTime = BULLET_FLIGHT_TIME
   bullet.maxHeight = Math.min(distance / 4, 200) // 抛物线最大高度
+  bullet.hasHit = false // 标记炮弹是否已经命中
 
   // 添加到世界
   worldContainer.addChild(bullet)
@@ -683,6 +701,11 @@ function onPlayerDied(data) {
 
     // 设置透明度
     ships[data.id].alpha = 0.5
+
+    // 显示死亡标记
+    if (ships[data.id].deadMarker) {
+      ships[data.id].deadMarker.visible = true;
+    }
 
     // 如果是自己，显示死亡信息和倒计时
     if (data.id === selfId) {
@@ -787,6 +810,12 @@ function onPlayerRespawned(data) {
     ships[data.id].y = data.y
     ships[data.id].alpha = 1
     ships[data.id].playerData.health = data.health
+
+    // 隐藏死亡标记
+    if (ships[data.id].deadMarker) {
+      ships[data.id].deadMarker.visible = false;
+    }
+
     updateHealthBar(ships[data.id])
 
     // 如果是自己，更新血量显示
@@ -1100,8 +1129,14 @@ function updateBullets(delta) {
 
     // 如果飞行结束
     if (progress >= 1) {
-      // 创建落水爆炸效果
-      createWaterExplosion(bullet.x, bullet.y)
+      // 如果炮弹还没有命中任何目标，检查落点附近的船只
+      if (!bullet.hasHit) {
+        // 创建落水爆炸效果
+        createWaterExplosion(bullet.x, bullet.y)
+
+        // 检查落点附近的船只
+        checkSplashDamage(bullet)
+      }
 
       // 移除子弹
       worldContainer.removeChild(bullet)
@@ -1144,72 +1179,54 @@ function updateBullets(delta) {
   }
 }
 
-// 创建炮弹尾迹
-function createBulletTrail(x, y, size) {
-  const trail = new PIXI.Graphics()
-  trail.beginFill(0xff8800, 0.7)
-  trail.drawCircle(0, 0, size)
-  trail.endFill()
+// 检查落水伤害
+function checkSplashDamage(bullet) {
+  const SPLASH_RADIUS = EXPLOSION_RADIUS; // 使用爆炸半径作为溅射伤害半径
 
-  trail.x = x
-  trail.y = y
-  trail.alpha = 0.7
+  // 检查所有船只
+  for (const id in ships) {
+    const ship = ships[id]
 
-  worldContainer.addChild(trail)
+    // 跳过已经死亡的船只
+    if (ship.playerData.health <= 0) continue
 
-  // 淡出并移除
-  const fadeOut = () => {
-    trail.alpha -= 0.1
-    trail.scale.x *= 0.9
-    trail.scale.y *= 0.9
+    // 计算船只与落点的距离
+    const dx = ship.x - bullet.x
+    const dy = ship.y - bullet.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
 
-    if (trail.alpha <= 0.1) {
-      worldContainer.removeChild(trail)
-      return
+    // 如果在溅射范围内
+    if (distance < SPLASH_RADIUS + 20) { // 船只半径约为20
+      // 计算伤害（距离越近伤害越高）
+      const damageMultiplier = 1 - (distance / (SPLASH_RADIUS + 20))
+      const damage = Math.floor(bullet.damage * damageMultiplier)
+
+      // 如果是自己的炮弹打到自己，伤害减半
+      const finalDamage = (bullet.shooterId === id) ? Math.floor(damage / 2) : damage
+
+      if (finalDamage > 0) {
+        // 发送击中事件
+        socket.emit('playerHit', {
+          id: id,
+          damage: finalDamage
+        })
+
+        // 如果是自己的炮弹打到自己，记录日志
+        if (bullet.shooterId === id) {
+          console.log("自己的炮弹溅射伤害到自己，造成伤害:", finalDamage)
+        }
+      }
     }
-
-    requestAnimationFrame(fadeOut)
   }
 
-  fadeOut()
+  // 标记炮弹已命中
+  bullet.hasHit = true
 }
 
 // 检测碰撞
 function checkCollisions() {
-  // 子弹与船只碰撞
-  for (let i = bullets.length - 1; i >= 0; i--) {
-    const bullet = bullets[i]
-
-    // 检查与所有船只的碰撞
-    for (const id in ships) {
-      const ship = ships[id]
-
-      // 不检查自己发射的子弹与自己的碰撞
-      if (bullet.shooterId === id) continue
-
-      // 简单的圆形碰撞检测
-      const dx = bullet.x - ship.x
-      const dy = bullet.y - ship.y
-      const distance = Math.sqrt(dx * dx + dy * dy)
-
-      if (distance < 20) { // 船只半径约为20
-        // 发送击中事件
-        socket.emit('playerHit', {
-          id: id,
-          damage: bullet.damage
-        })
-
-        // 创建爆炸效果（在船只位置）
-        createWaterExplosion(bullet.x, bullet.y)
-
-        // 移除子弹
-        worldContainer.removeChild(bullet)
-        bullets.splice(i, 1)
-
-        break
-      }
-    }
-  }
+  // 不再在飞行过程中检测子弹与船只的碰撞
+  // 所有伤害都在炮弹落水时通过溅射伤害计算
 
   // 船只与船只碰撞
   if (selfShip && selfShip.playerData.health > 0) {
@@ -1659,6 +1676,36 @@ function createWaterExplosion(x, y) {
 
   // 添加声音效果（如果有的话）
   // playSound('splash');
+}
+
+// 创建炮弹尾迹
+function createBulletTrail(x, y, size) {
+  const trail = new PIXI.Graphics()
+  trail.beginFill(0xff8800, 0.7)
+  trail.drawCircle(0, 0, size)
+  trail.endFill()
+
+  trail.x = x
+  trail.y = y
+  trail.alpha = 0.7
+
+  worldContainer.addChild(trail)
+
+  // 淡出并移除
+  const fadeOut = () => {
+    trail.alpha -= 0.1
+    trail.scale.x *= 0.9
+    trail.scale.y *= 0.9
+
+    if (trail.alpha <= 0.1) {
+      worldContainer.removeChild(trail)
+      return
+    }
+
+    requestAnimationFrame(fadeOut)
+  }
+
+  fadeOut()
 }
 
 // 初始化游戏
