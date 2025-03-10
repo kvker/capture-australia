@@ -28,8 +28,12 @@ let worldHeight
 let gameContainer
 let worldContainer
 let lastShootTime = 0
-let shootCooldown = 1000 // 射击冷却时间（毫秒）
+let shootCooldown = 2000 // 射击冷却时间（毫秒）
 let collisionAnimations = [] // 碰撞动画数组
+let isMouseDown = false // 鼠标是否按下
+let mousePosition = { x: 0, y: 0 } // 鼠标位置
+let isAimingMode = false // 是否处于瞄准模式
+const BULLET_FLIGHT_TIME = 2 // 炮弹飞行时间（秒）
 
 // DOM元素
 const loginScreen = document.getElementById('loginScreen')
@@ -94,8 +98,10 @@ function setupEventListeners() {
     keys[e.key.toLowerCase()] = false
   })
 
-  // 鼠标点击事件
-  app.view.addEventListener('click', onMouseClick)
+  // 鼠标事件
+  app.view.addEventListener('mousedown', onMouseDown)
+  app.view.addEventListener('mouseup', onMouseUp)
+  app.view.addEventListener('mousemove', onMouseMove)
 
   // 窗口大小调整事件
   window.addEventListener('resize', onResize)
@@ -124,6 +130,118 @@ function setupEventListeners() {
 
   // 调试信息
   console.log('事件监听器设置完成')
+}
+
+// 鼠标按下事件
+function onMouseDown(e) {
+  if (!gameStarted || !selfShip || selfShip.playerData.health <= 0) return
+
+  // 只处理左键
+  if (e.button !== 0) return
+
+  isMouseDown = true
+  isAimingMode = true
+
+  // 更新鼠标位置
+  updateMousePosition(e)
+
+  // 立即计算并打印鼠标位置和船只位置，用于调试
+  console.log("鼠标按下 - 鼠标位置:", mousePosition, "船只位置:", {x: selfShip.x, y: selfShip.y})
+}
+
+// 鼠标松开事件
+function onMouseUp(e) {
+  if (!gameStarted || !selfShip || selfShip.playerData.health <= 0) return
+
+  // 只处理左键
+  if (e.button !== 0) return
+
+  // 如果之前是按下状态，则尝试发射炮弹
+  if (isMouseDown) {
+    fireCannonIfReady()
+  }
+
+  isMouseDown = false
+  isAimingMode = false
+}
+
+// 鼠标移动事件
+function onMouseMove(e) {
+  if (!gameStarted || !selfShip) return
+
+  // 更新鼠标位置
+  updateMousePosition(e)
+}
+
+// 更新鼠标位置
+function updateMousePosition(e) {
+  // 获取鼠标位置（相对于画布）
+  const rect = app.view.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  const y = e.clientY - rect.top
+
+  // 转换为世界坐标
+  mousePosition = {
+    x: x - app.screen.width / 2 + selfShip.x,
+    y: y - app.screen.height / 2 + selfShip.y
+  }
+
+  // 调试输出
+  if (isAimingMode) {
+    console.log("更新鼠标位置:", mousePosition, "船只位置:", {x: selfShip.x, y: selfShip.y})
+  }
+}
+
+// 如果冷却完成，发射炮弹
+function fireCannonIfReady() {
+  const now = Date.now()
+
+  // 检查射击冷却
+  if (now - lastShootTime < shootCooldown) {
+    // 显示冷却提示
+    showCooldownMessage((shootCooldown - (now - lastShootTime)) / 1000)
+    return
+  }
+
+  lastShootTime = now
+
+  // 计算从船只到鼠标的距离和方向
+  const dx = mousePosition.x - selfShip.x
+  const dy = mousePosition.y - selfShip.y
+  const distance = Math.sqrt(dx * dx + dy * dy)
+  const angle = selfShip.ship.rotation
+
+  // 计算目标点（使用船只当前朝向和鼠标距离）
+  const targetX = selfShip.x + Math.cos(angle) * distance
+  const targetY = selfShip.y + Math.sin(angle) * distance
+
+  // 发送射击事件
+  socket.emit('playerShoot', {
+    x: selfShip.x,
+    y: selfShip.y,
+    targetX: targetX,
+    targetY: targetY
+  })
+}
+
+// 显示冷却提示
+function showCooldownMessage(seconds) {
+  // 创建冷却提示文本
+  const cooldownText = new PIXI.Text(`炮弹冷却中: ${seconds.toFixed(1)}秒`, {
+    fontFamily: 'Arial',
+    fontSize: 16,
+    fill: 0xff0000,
+    align: 'center'
+  })
+  cooldownText.anchor.set(0.5)
+  cooldownText.x = app.screen.width / 2
+  cooldownText.y = app.screen.height - 50
+  app.stage.addChild(cooldownText)
+
+  // 1秒后移除
+  setTimeout(() => {
+    app.stage.removeChild(cooldownText)
+  }, 1000)
 }
 
 // 开始游戏
@@ -456,10 +574,7 @@ function onPlayerShot(data) {
     const recoilY = -Math.sin(angle) * RECOIL_FORCE
 
     // 应用后坐力
-    selfShip.playerData.x += recoilX
-    selfShip.playerData.y += recoilY
-    selfShip.x += recoilX
-    selfShip.y += recoilY
+    createCollisionAnimation(selfShip, recoilX, recoilY)
 
     // 屏幕震动效果
     shakeScreen(3)
@@ -470,6 +585,7 @@ function onPlayerShot(data) {
 function createBullet(x, y, targetX, targetY, shooterId) {
   // 计算方向
   const angle = Math.atan2(targetY - y, targetX - x)
+  const distance = Math.sqrt((targetX - x) * (targetX - x) + (targetY - y) * (targetY - y))
 
   // 创建炮弹图形
   const bullet = new PIXI.Graphics()
@@ -481,14 +597,18 @@ function createBullet(x, y, targetX, targetY, shooterId) {
   bullet.x = x
   bullet.y = y
 
-  // 设置速度
-  bullet.vx = Math.cos(angle) * BULLET_SPEED
-  bullet.vy = Math.sin(angle) * BULLET_SPEED
-
   // 设置属性
   bullet.shooterId = shooterId
   bullet.damage = BULLET_DAMAGE
-  bullet.lifeTime = 100 // 子弹生命周期
+  bullet.startX = x
+  bullet.startY = y
+  bullet.targetX = targetX
+  bullet.targetY = targetY
+  bullet.distance = distance
+  bullet.angle = angle
+  bullet.flightTime = 0
+  bullet.totalFlightTime = BULLET_FLIGHT_TIME
+  bullet.maxHeight = Math.min(distance / 4, 200) // 抛物线最大高度
 
   // 添加到世界
   worldContainer.addChild(bullet)
@@ -713,35 +833,6 @@ function shakeScreen(intensity) {
   shake()
 }
 
-// 鼠标点击事件
-function onMouseClick(e) {
-  if (!gameStarted || !selfShip || selfShip.playerData.health <= 0) return
-
-  const now = Date.now()
-
-  // 检查射击冷却
-  if (now - lastShootTime < shootCooldown) return
-
-  lastShootTime = now
-
-  // 获取鼠标位置
-  const mousePosition = app.renderer.plugins.interaction.mouse.global
-
-  // 转换为世界坐标
-  const worldPos = {
-    x: mousePosition.x + worldContainer.x - app.screen.width / 2,
-    y: mousePosition.y + worldContainer.y - app.screen.height / 2
-  }
-
-  // 发送射击事件
-  socket.emit('playerShoot', {
-    x: selfShip.x,
-    y: selfShip.y,
-    targetX: worldPos.x,
-    targetY: worldPos.y
-  })
-}
-
 // 窗口大小调整
 function onResize() {
   app.renderer.resize(window.innerWidth, window.innerHeight)
@@ -878,22 +969,57 @@ function gameLoop(delta) {
 
   // 更新小地图
   updateMiniMap()
+
+  // 绘制瞄准线
+  drawAimingLine()
 }
 
 // 处理玩家输入
 function handleInput(delta) {
-  if (selfShip.playerData.health <= 0) return
+  if (!selfShip || selfShip.playerData.health <= 0) return
 
   let rotation = selfShip.ship.rotation
   let speed = selfShip.playerData.speed
 
-  // 旋转控制
-  if (keys['a'] || keys['arrowleft']) {
-    rotation -= SHIP_ROTATION_SPEED * delta
-  }
+  // 如果在瞄准模式，根据鼠标位置计算旋转
+  if (isAimingMode) {
+    // 计算从船只到鼠标的角度
+    const dx = mousePosition.x - selfShip.x
+    const dy = mousePosition.y - selfShip.y
+    const targetRotation = Math.atan2(dy, dx)
 
-  if (keys['d'] || keys['arrowright']) {
-    rotation += SHIP_ROTATION_SPEED * delta
+    // 调试输出
+    console.log("瞄准计算 - 目标角度:", targetRotation, "当前角度:", rotation, "差值:", targetRotation - rotation)
+
+    // 计算最短旋转方向
+    let rotationDiff = targetRotation - rotation
+
+    // 确保差值在 -PI 到 PI 之间
+    while (rotationDiff > Math.PI) rotationDiff -= Math.PI * 2
+    while (rotationDiff < -Math.PI) rotationDiff += Math.PI * 2
+
+    // 使用正常的旋转速度
+    const rotationSpeed = SHIP_ROTATION_SPEED
+
+    // 如果差值很小，直接设置为目标角度
+    if (Math.abs(rotationDiff) < rotationSpeed * delta) {
+      rotation = targetRotation
+    } else {
+      // 否则按正常速度旋转
+      rotation += Math.sign(rotationDiff) * rotationSpeed * delta
+    }
+
+    // 强制更新船只朝向
+    selfShip.ship.rotation = rotation
+  } else {
+    // 正常旋转控制
+    if (keys['a'] || keys['arrowleft']) {
+      rotation -= SHIP_ROTATION_SPEED * delta
+    }
+
+    if (keys['d'] || keys['arrowright']) {
+      rotation += SHIP_ROTATION_SPEED * delta
+    }
   }
 
   // 速度控制
@@ -944,25 +1070,79 @@ function updateBullets(delta) {
   for (let i = bullets.length - 1; i >= 0; i--) {
     const bullet = bullets[i]
 
-    // 更新位置
-    bullet.x += bullet.vx
-    bullet.y += bullet.vy
+    // 更新飞行时间
+    bullet.flightTime += delta / 60
 
-    // 减少生命周期
-    bullet.lifeTime--
+    // 计算飞行进度 (0-1)
+    const progress = Math.min(bullet.flightTime / bullet.totalFlightTime, 1)
 
-    // 检查是否超出世界或生命周期结束
-    if (
-      bullet.x < 0 ||
-      bullet.x > worldWidth ||
-      bullet.y < 0 ||
-      bullet.y > worldHeight ||
-      bullet.lifeTime <= 0
-    ) {
+    // 如果飞行结束
+    if (progress >= 1) {
       worldContainer.removeChild(bullet)
       bullets.splice(i, 1)
+      continue
     }
+
+    // 计算抛物线轨迹
+    // 使用二次贝塞尔曲线: P = (1-t)²P₀ + 2(1-t)tP₁ + t²P₂
+    // 其中P₀是起点，P₂是终点，P₁是控制点（抛物线最高点）
+
+    // 计算控制点（在起点和终点之间，但高度更高）
+    const controlX = (bullet.startX + bullet.targetX) / 2
+    const controlY = (bullet.startY + bullet.targetY) / 2 - bullet.maxHeight
+
+    // 计算当前位置
+    const t = progress
+    const mt = 1 - t
+    bullet.x = mt * mt * bullet.startX + 2 * mt * t * controlX + t * t * bullet.targetX
+    bullet.y = mt * mt * bullet.startY + 2 * mt * t * controlY + t * t * bullet.targetY
+
+    // 计算当前大小（先变大再变小）
+    // 在飞行中点时达到最大尺寸
+    const sizeProgress = progress < 0.5 ? progress * 2 : (1 - progress) * 2
+    const baseSize = 5
+    const maxSizeMultiplier = 2
+    const currentSize = baseSize * (1 + sizeProgress * (maxSizeMultiplier - 1))
+
+    // 更新炮弹大小
+    bullet.clear()
+    bullet.beginFill(0xffff00)
+    bullet.drawCircle(0, 0, currentSize)
+    bullet.endFill()
+
+    // 添加尾迹效果
+    createBulletTrail(bullet.x, bullet.y, currentSize * 0.7)
   }
+}
+
+// 创建炮弹尾迹
+function createBulletTrail(x, y, size) {
+  const trail = new PIXI.Graphics()
+  trail.beginFill(0xff8800, 0.7)
+  trail.drawCircle(0, 0, size)
+  trail.endFill()
+
+  trail.x = x
+  trail.y = y
+  trail.alpha = 0.7
+
+  worldContainer.addChild(trail)
+
+  // 淡出并移除
+  const fadeOut = () => {
+    trail.alpha -= 0.1
+    trail.scale.x *= 0.9
+    trail.scale.y *= 0.9
+
+    if (trail.alpha <= 0.1) {
+      worldContainer.removeChild(trail)
+      return
+    }
+
+    requestAnimationFrame(fadeOut)
+  }
+
+  fadeOut()
 }
 
 // 检测碰撞
@@ -1301,6 +1481,66 @@ function updateCollisionAnimations(delta) {
       }
     }
   }
+}
+
+// 绘制瞄准线
+function drawAimingLine() {
+  // 移除旧的瞄准线
+  if (selfShip.aimingLine) {
+    worldContainer.removeChild(selfShip.aimingLine)
+  }
+
+  // 如果不在瞄准模式，不绘制瞄准线
+  if (!isAimingMode) {
+    selfShip.aimingLine = null
+    return
+  }
+
+  // 创建新的瞄准线
+  const aimingLine = new PIXI.Graphics()
+
+  // 绘制从船只到鼠标的线
+  aimingLine.lineStyle(1, 0xffffff, 0.5)
+  aimingLine.moveTo(0, 0)
+  aimingLine.lineTo(mousePosition.x - selfShip.x, mousePosition.y - selfShip.y)
+
+  // 绘制船只朝向线
+  aimingLine.lineStyle(2, 0xff0000, 0.7)
+  aimingLine.moveTo(0, 0)
+
+  // 计算瞄准线长度和方向
+  const lineLength = 200
+  const endX = Math.cos(selfShip.ship.rotation) * lineLength
+  const endY = Math.sin(selfShip.ship.rotation) * lineLength
+
+  // 绘制直线
+  aimingLine.lineTo(endX, endY)
+
+  // 绘制箭头
+  const arrowSize = 10
+  const arrowAngle = Math.PI / 6 // 30度
+
+  const arrowX1 = endX - arrowSize * Math.cos(selfShip.ship.rotation - arrowAngle)
+  const arrowY1 = endY - arrowSize * Math.sin(selfShip.ship.rotation - arrowAngle)
+
+  const arrowX2 = endX - arrowSize * Math.cos(selfShip.ship.rotation + arrowAngle)
+  const arrowY2 = endY - arrowSize * Math.sin(selfShip.ship.rotation + arrowAngle)
+
+  aimingLine.moveTo(endX, endY)
+  aimingLine.lineTo(arrowX1, arrowY1)
+
+  aimingLine.moveTo(endX, endY)
+  aimingLine.lineTo(arrowX2, arrowY2)
+
+  // 设置位置
+  aimingLine.x = selfShip.x
+  aimingLine.y = selfShip.y
+
+  // 添加到世界
+  worldContainer.addChild(aimingLine)
+
+  // 保存引用
+  selfShip.aimingLine = aimingLine
 }
 
 // 初始化游戏
