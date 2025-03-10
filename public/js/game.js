@@ -29,6 +29,7 @@ let gameContainer
 let worldContainer
 let lastShootTime = 0
 let shootCooldown = 1000 // 射击冷却时间（毫秒）
+let collisionAnimations = [] // 碰撞动画数组
 
 // DOM元素
 const loginScreen = document.getElementById('loginScreen')
@@ -662,12 +663,27 @@ function onPlayerRespawned(data) {
 function onCollision(data) {
   // 如果是自己，添加屏幕震动
   if (data.id1 === selfId || data.id2 === selfId) {
-    shakeScreen(7)
+    // 震动强度基于船只速度，而不是伤害
+    shakeScreen(5)
 
     // 如果是其他玩家碰撞了自己，应用反弹力
     if (data.id1 !== selfId && ships[data.id1]) {
-      ships[data.id1].x += data.bounceX
-      ships[data.id1].y += data.bounceY
+      // 创建碰撞动画，而不是直接应用反弹力
+      createCollisionAnimation(ships[data.id1], data.bounceX, data.bounceY)
+    }
+
+    // 如果自己碰撞了其他玩家，确保对方也有动画
+    if (data.id2 !== selfId && ships[data.id2]) {
+      // 创建碰撞动画，应用反弹力
+      createCollisionAnimation(ships[data.id2], data.bounceX, data.bounceY)
+    }
+  } else {
+    // 如果是其他玩家之间的碰撞，也应用动画效果
+    if (ships[data.id1]) {
+      createCollisionAnimation(ships[data.id1], data.bounceX, data.bounceY)
+    }
+    if (ships[data.id2]) {
+      createCollisionAnimation(ships[data.id2], -data.bounceX, -data.bounceY)
     }
   }
 }
@@ -848,6 +864,9 @@ function gameLoop(delta) {
   // 更新所有子弹
   updateBullets(delta)
 
+  // 更新碰撞动画
+  updateCollisionAnimations(delta)
+
   // 检测碰撞
   checkCollisions()
 
@@ -985,6 +1004,8 @@ function checkCollisions() {
 
   // 船只与船只碰撞
   if (selfShip && selfShip.playerData.health > 0) {
+    const now = Date.now();
+
     for (const id in ships) {
       // 不检查与自己的碰撞
       if (id === selfId) continue
@@ -1007,48 +1028,47 @@ function checkCollisions() {
         const selfSpeed = Math.abs(selfShip.playerData.speed)
         const otherSpeed = Math.abs(otherShip.playerData.speed)
         const totalSpeed = selfSpeed + otherSpeed
-        const bounceForce = Math.min(totalSpeed * 2, 10) // 限制最大反弹力
+        const bounceForce = Math.min(totalSpeed * 2, 10) * 5 // 反弹力乘以5
 
         // 计算碰撞后的反弹
         const bounceX = Math.cos(angle) * bounceForce
         const bounceY = Math.sin(angle) * bounceForce
 
-        // 应用反弹力到自己的船
-        selfShip.x += bounceX
-        selfShip.y += bounceY
+        // 创建碰撞动画，而不是直接应用反弹力
+        createCollisionAnimation(selfShip, bounceX, bounceY)
 
         // 减少自己的速度
         selfShip.playerData.speed *= 0.5
 
-        // 计算伤害（基于速度）
-        const damage = Math.min(Math.round(totalSpeed * 5), COLLISION_DAMAGE)
+        // 检查碰撞冷却
+        if (!selfShip.collisionCooldowns) {
+          selfShip.collisionCooldowns = {};
+        }
 
-        // 添加碰撞冷却，避免瞬间多次伤害
-        if (!selfShip.lastCollisionTime || Date.now() - selfShip.lastCollisionTime > 1000) {
-          selfShip.lastCollisionTime = Date.now()
+        // 对每个船只单独设置冷却
+        if (!selfShip.collisionCooldowns[id] || now - selfShip.collisionCooldowns[id] > 1000) {
+          selfShip.collisionCooldowns[id] = now;
 
-          // 发送碰撞事件
+          // 发送碰撞事件，但不造成伤害
           socket.emit('collision', {
             id1: selfId,
             id2: id,
-            damage: damage,
+            damage: 0, // 不造成伤害
             bounceX: -bounceX, // 对方的反弹方向相反
             bounceY: -bounceY
           })
 
-          // 发送伤害事件
-          socket.emit('playerHit', {
-            id: selfId,
-            damage: Math.round(damage / 2)
-          })
-
-          socket.emit('playerHit', {
-            id: id,
-            damage: Math.round(damage / 2)
-          })
-
           // 屏幕震动效果
-          shakeScreen(Math.min(damage / 2, 7))
+          shakeScreen(Math.min(totalSpeed, 7))
+        } else {
+          // 即使在冷却中，也应用反弹效果
+          socket.emit('collision', {
+            id1: selfId,
+            id2: id,
+            damage: 0, // 不造成伤害
+            bounceX: -bounceX, // 对方的反弹方向相反
+            bounceY: -bounceY
+          })
         }
       }
     }
@@ -1056,6 +1076,8 @@ function checkCollisions() {
 
   // 船只与岛屿碰撞
   if (selfShip && selfShip.playerData.health > 0) {
+    const now = Date.now();
+
     for (const island of islands) {
       const dx = selfShip.x - island.x
       const dy = selfShip.y - island.y
@@ -1067,33 +1089,21 @@ function checkCollisions() {
 
         // 计算碰撞后的反弹力度（基于速度）
         const speed = Math.abs(selfShip.playerData.speed)
-        const bounceForce = Math.min(speed * 2, 8) // 限制最大反弹力
+        const bounceForce = Math.min(speed * 2, 8) * 5 // 反弹力乘以5
 
         // 计算碰撞后的反弹
         const bounceX = Math.cos(angle) * bounceForce
         const bounceY = Math.sin(angle) * bounceForce
 
-        // 应用反弹力
-        selfShip.x += bounceX
-        selfShip.y += bounceY
+        // 创建碰撞动画，而不是直接应用反弹力
+        createCollisionAnimation(selfShip, bounceX, bounceY)
 
         // 减少速度
         selfShip.playerData.speed *= 0.3
 
-        // 如果速度足够大，造成伤害
-        if (speed > 2 && (!selfShip.lastIslandCollisionTime || Date.now() - selfShip.lastIslandCollisionTime > 1000)) {
-          selfShip.lastIslandCollisionTime = Date.now()
-
-          const damage = Math.min(Math.round(speed * 3), 10)
-
-          // 发送伤害事件
-          socket.emit('playerHit', {
-            id: selfId,
-            damage: damage
-          })
-
-          // 屏幕震动效果
-          shakeScreen(Math.min(damage / 2, 5))
+        // 屏幕震动效果，但不造成伤害
+        if (speed > 2) {
+          shakeScreen(Math.min(speed, 5))
         }
       }
     }
@@ -1138,10 +1148,58 @@ function createSmallExplosion(x, y) {
 function keepInWorld() {
   if (!selfShip) return
 
-  if (selfShip.x < 0) selfShip.x = 0
-  if (selfShip.x > worldWidth) selfShip.x = worldWidth
-  if (selfShip.y < 0) selfShip.y = 0
-  if (selfShip.y > worldHeight) selfShip.y = worldHeight
+  let needsAdjustment = false
+  let adjustedX = selfShip.x
+  let adjustedY = selfShip.y
+
+  // 检查世界边界
+  if (selfShip.x < 0) {
+    adjustedX = 0
+    needsAdjustment = true
+  }
+  if (selfShip.x > worldWidth) {
+    adjustedX = worldWidth
+    needsAdjustment = true
+  }
+  if (selfShip.y < 0) {
+    adjustedY = 0
+    needsAdjustment = true
+  }
+  if (selfShip.y > worldHeight) {
+    adjustedY = worldHeight
+    needsAdjustment = true
+  }
+
+  // 检查是否在岛屿内部
+  for (const island of islands) {
+    const dx = selfShip.x - island.x
+    const dy = selfShip.y - island.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
+
+    // 如果在岛屿内部
+    if (distance < island.radius + 20) { // 船只半径约为20
+      needsAdjustment = true
+
+      // 计算从岛屿中心到船只的方向
+      const angle = Math.atan2(dy, dx)
+
+      // 计算岛屿边缘的位置（岛屿半径 + 船只半径 + 5像素的安全距离）
+      const safeDistance = island.radius + 25
+      adjustedX = island.x + Math.cos(angle) * safeDistance
+      adjustedY = island.y + Math.sin(angle) * safeDistance
+
+      break
+    }
+  }
+
+  // 如果需要调整位置
+  if (needsAdjustment) {
+    // 使用动画移动到调整后的位置
+    createCollisionAnimation(selfShip, adjustedX - selfShip.x, adjustedY - selfShip.y)
+
+    // 减少速度
+    selfShip.playerData.speed *= 0.3
+  }
 }
 
 // 处理玩家信息
@@ -1150,6 +1208,98 @@ function onPlayerInfo(data) {
   if (!ships[data.id]) {
     createShip(data.id, data.player)
     updatePlayerCount()
+  }
+}
+
+// 创建碰撞动画
+function createCollisionAnimation(ship, bounceX, bounceY) {
+  // 计算目标位置
+  const targetX = ship.x + bounceX
+  const targetY = ship.y + bounceY
+
+  // 检查目标位置是否在岛屿内部
+  let isInsideIsland = false
+  let adjustedPosition = { x: targetX, y: targetY }
+
+  // 检查所有岛屿
+  for (const island of islands) {
+    const dx = targetX - island.x
+    const dy = targetY - island.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
+
+    // 如果目标位置在岛屿内部
+    if (distance < island.radius + 20) { // 船只半径约为20
+      isInsideIsland = true
+
+      // 计算从岛屿中心到船只的方向
+      const angle = Math.atan2(dy, dx)
+
+      // 计算岛屿边缘的位置（岛屿半径 + 船只半径 + 5像素的安全距离）
+      const safeDistance = island.radius + 25
+      adjustedPosition.x = island.x + Math.cos(angle) * safeDistance
+      adjustedPosition.y = island.y + Math.sin(angle) * safeDistance
+
+      break
+    }
+  }
+
+  // 创建动画对象
+  const animation = {
+    ship: ship,
+    startX: ship.x,
+    startY: ship.y,
+    targetX: isInsideIsland ? adjustedPosition.x : targetX,
+    targetY: isInsideIsland ? adjustedPosition.y : targetY,
+    progress: 0,
+    duration: 0.1, // 动画持续时间（秒）
+    easing: t => {
+      // 缓动函数：先快后慢
+      return 1 - Math.pow(1 - t, 3)
+    }
+  }
+
+  // 添加到动画数组
+  collisionAnimations.push(animation)
+}
+
+// 更新碰撞动画
+function updateCollisionAnimations(delta) {
+  // 计算每帧的时间增量（秒）
+  const timeIncrement = delta / 60
+
+  // 更新所有动画
+  for (let i = collisionAnimations.length - 1; i >= 0; i--) {
+    const anim = collisionAnimations[i]
+
+    // 更新进度
+    anim.progress += timeIncrement / anim.duration
+
+    // 如果动画完成
+    if (anim.progress >= 1) {
+      // 设置到最终位置
+      anim.ship.x = anim.targetX
+      anim.ship.y = anim.targetY
+
+      // 更新玩家数据
+      if (anim.ship.playerData) {
+        anim.ship.playerData.x = anim.targetX
+        anim.ship.playerData.y = anim.targetY
+      }
+
+      // 从数组中移除
+      collisionAnimations.splice(i, 1)
+    } else {
+      // 计算当前位置
+      const t = anim.easing(anim.progress)
+      anim.ship.x = anim.startX + (anim.targetX - anim.startX) * t
+      anim.ship.y = anim.startY + (anim.targetY - anim.startY) * t
+
+      // 更新玩家数据
+      if (anim.ship.playerData) {
+        anim.ship.playerData.x = anim.ship.x
+        anim.ship.playerData.y = anim.ship.y
+      }
+    }
   }
 }
 
