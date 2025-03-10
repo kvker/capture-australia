@@ -157,6 +157,39 @@ io.on('connection', (socket) => {
   socket.on('collision', (data) => {
     // 广播碰撞事件
     io.emit('collisionOccurred', data)
+
+    // 如果提供了反弹力，应用到另一个玩家
+    if (data.bounceX !== undefined && data.bounceY !== undefined && players[data.id2]) {
+      // 更新另一个玩家的位置
+      players[data.id2].x += data.bounceX
+      players[data.id2].y += data.bounceY
+
+      // 确保玩家在世界范围内
+      if (players[data.id2].x < 0) players[data.id2].x = 0
+      if (players[data.id2].x > WORLD_WIDTH) players[data.id2].x = WORLD_WIDTH
+      if (players[data.id2].y < 0) players[data.id2].y = 0
+      if (players[data.id2].y > WORLD_HEIGHT) players[data.id2].y = WORLD_HEIGHT
+
+      // 广播位置更新
+      io.emit('playerMoved', {
+        id: data.id2,
+        x: players[data.id2].x,
+        y: players[data.id2].y,
+        rotation: players[data.id2].rotation,
+        speed: players[data.id2].speed
+      })
+    }
+  })
+
+  // 处理玩家信息请求
+  socket.on('requestPlayerInfo', (data) => {
+    const requestedId = data.id
+    if (players[requestedId]) {
+      socket.emit('playerInfo', {
+        id: requestedId,
+        player: players[requestedId]
+      })
+    }
   })
 
   // 处理玩家断开连接
@@ -177,17 +210,6 @@ io.on('connection', (socket) => {
       for (const id in players) {
         console.log(`- ${id}: ${players[id].id}`)
       }
-    }
-  })
-
-  // 处理玩家信息请求
-  socket.on('requestPlayerInfo', (data) => {
-    const requestedId = data.id
-    if (players[requestedId]) {
-      socket.emit('playerInfo', {
-        id: requestedId,
-        player: players[requestedId]
-      })
     }
   })
 })

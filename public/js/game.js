@@ -546,22 +546,60 @@ function onPlayerDied(data) {
     // 设置透明度
     ships[data.id].alpha = 0.5
 
-    // 如果是自己，显示死亡信息
+    // 如果是自己，显示死亡信息和倒计时
     if (data.id === selfId) {
-      const deathText = new PIXI.Text('你已阵亡，3秒后重生...', {
+      // 创建死亡提示容器
+      const deathContainer = new PIXI.Container()
+      deathContainer.x = app.screen.width / 2
+      deathContainer.y = app.screen.height / 2
+      app.stage.addChild(deathContainer)
+
+      // 创建背景
+      const background = new PIXI.Graphics()
+      background.beginFill(0x000000, 0.7)
+      background.drawRoundedRect(-150, -60, 300, 120, 10)
+      background.endFill()
+      deathContainer.addChild(background)
+
+      // 创建死亡文本
+      const deathText = new PIXI.Text('你已阵亡', {
         fontFamily: 'Arial',
         fontSize: 24,
         fill: 0xff0000,
-        align: 'center'
+        align: 'center',
+        fontWeight: 'bold'
       })
-      deathText.anchor.set(0.5)
-      deathText.x = app.screen.width / 2
-      deathText.y = app.screen.height / 2
-      app.stage.addChild(deathText)
+      deathText.anchor.set(0.5, 0.5)
+      deathText.y = -25
+      deathContainer.addChild(deathText)
+
+      // 创建倒计时文本
+      const countdownText = new PIXI.Text('3', {
+        fontFamily: 'Arial',
+        fontSize: 36,
+        fill: 0xffffff,
+        align: 'center',
+        fontWeight: 'bold'
+      })
+      countdownText.anchor.set(0.5, 0.5)
+      countdownText.y = 20
+      deathContainer.addChild(countdownText)
+
+      // 开始倒计时
+      let countdown = 3
+      const countdownInterval = setInterval(() => {
+        countdown--
+        if (countdown <= 0) {
+          clearInterval(countdownInterval)
+          countdownText.text = '重生中...'
+        } else {
+          countdownText.text = countdown.toString()
+        }
+      }, 1000)
 
       // 3秒后移除文本
       setTimeout(() => {
-        app.stage.removeChild(deathText)
+        app.stage.removeChild(deathContainer)
       }, 3000)
 
       // 屏幕震动效果
@@ -625,6 +663,12 @@ function onCollision(data) {
   // 如果是自己，添加屏幕震动
   if (data.id1 === selfId || data.id2 === selfId) {
     shakeScreen(7)
+
+    // 如果是其他玩家碰撞了自己，应用反弹力
+    if (data.id1 !== selfId && ships[data.id1]) {
+      ships[data.id1].x += data.bounceX
+      ships[data.id1].y += data.bounceY
+    }
   }
 }
 
@@ -947,6 +991,9 @@ function checkCollisions() {
 
       const otherShip = ships[id]
 
+      // 跳过已经死亡的船只
+      if (otherShip.playerData.health <= 0) continue
+
       // 简单的圆形碰撞检测
       const dx = selfShip.x - otherShip.x
       const dy = selfShip.y - otherShip.y
@@ -956,31 +1003,53 @@ function checkCollisions() {
         // 计算碰撞方向
         const angle = Math.atan2(dy, dx)
 
-        // 计算碰撞后的反弹
-        const bounceX = Math.cos(angle) * COLLISION_DAMAGE / 5
-        const bounceY = Math.sin(angle) * COLLISION_DAMAGE / 5
+        // 计算碰撞后的反弹力度（基于速度）
+        const selfSpeed = Math.abs(selfShip.playerData.speed)
+        const otherSpeed = Math.abs(otherShip.playerData.speed)
+        const totalSpeed = selfSpeed + otherSpeed
+        const bounceForce = Math.min(totalSpeed * 2, 10) // 限制最大反弹力
 
-        // 应用反弹力
+        // 计算碰撞后的反弹
+        const bounceX = Math.cos(angle) * bounceForce
+        const bounceY = Math.sin(angle) * bounceForce
+
+        // 应用反弹力到自己的船
         selfShip.x += bounceX
         selfShip.y += bounceY
 
-        // 发送碰撞事件
-        socket.emit('collision', {
-          id1: selfId,
-          id2: id,
-          damage: COLLISION_DAMAGE
-        })
+        // 减少自己的速度
+        selfShip.playerData.speed *= 0.5
 
-        // 发送伤害事件
-        socket.emit('playerHit', {
-          id: selfId,
-          damage: COLLISION_DAMAGE / 2
-        })
+        // 计算伤害（基于速度）
+        const damage = Math.min(Math.round(totalSpeed * 5), COLLISION_DAMAGE)
 
-        socket.emit('playerHit', {
-          id: id,
-          damage: COLLISION_DAMAGE / 2
-        })
+        // 添加碰撞冷却，避免瞬间多次伤害
+        if (!selfShip.lastCollisionTime || Date.now() - selfShip.lastCollisionTime > 1000) {
+          selfShip.lastCollisionTime = Date.now()
+
+          // 发送碰撞事件
+          socket.emit('collision', {
+            id1: selfId,
+            id2: id,
+            damage: damage,
+            bounceX: -bounceX, // 对方的反弹方向相反
+            bounceY: -bounceY
+          })
+
+          // 发送伤害事件
+          socket.emit('playerHit', {
+            id: selfId,
+            damage: Math.round(damage / 2)
+          })
+
+          socket.emit('playerHit', {
+            id: id,
+            damage: Math.round(damage / 2)
+          })
+
+          // 屏幕震动效果
+          shakeScreen(Math.min(damage / 2, 7))
+        }
       }
     }
   }
@@ -996,16 +1065,36 @@ function checkCollisions() {
         // 计算碰撞方向
         const angle = Math.atan2(dy, dx)
 
+        // 计算碰撞后的反弹力度（基于速度）
+        const speed = Math.abs(selfShip.playerData.speed)
+        const bounceForce = Math.min(speed * 2, 8) // 限制最大反弹力
+
         // 计算碰撞后的反弹
-        const bounceX = Math.cos(angle) * 5
-        const bounceY = Math.sin(angle) * 5
+        const bounceX = Math.cos(angle) * bounceForce
+        const bounceY = Math.sin(angle) * bounceForce
 
         // 应用反弹力
         selfShip.x += bounceX
         selfShip.y += bounceY
 
         // 减少速度
-        selfShip.playerData.speed *= 0.5
+        selfShip.playerData.speed *= 0.3
+
+        // 如果速度足够大，造成伤害
+        if (speed > 2 && (!selfShip.lastIslandCollisionTime || Date.now() - selfShip.lastIslandCollisionTime > 1000)) {
+          selfShip.lastIslandCollisionTime = Date.now()
+
+          const damage = Math.min(Math.round(speed * 3), 10)
+
+          // 发送伤害事件
+          socket.emit('playerHit', {
+            id: selfId,
+            damage: damage
+          })
+
+          // 屏幕震动效果
+          shakeScreen(Math.min(damage / 2, 5))
+        }
       }
     }
   }
