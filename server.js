@@ -40,6 +40,8 @@ io.on('connection', (socket) => {
 
   // 玩家加入游戏
   socket.on('join', (playerId) => {
+    console.log(`玩家加入: ${playerId}, socketId: ${socket.id}`)
+
     // 创建新玩家
     players[socket.id] = {
       id: playerId,
@@ -65,6 +67,12 @@ io.on('connection', (socket) => {
       id: socket.id,
       player: players[socket.id]
     })
+
+    // 打印当前玩家列表
+    console.log(`当前玩家列表: ${Object.keys(players).length}个玩家`)
+    for (const id in players) {
+      console.log(`- ${id}: ${players[id].id}`)
+    }
   })
 
   // 处理玩家移动
@@ -162,6 +170,23 @@ io.on('connection', (socket) => {
       // 通知其他玩家
       io.emit('playerLeft', {
         id: socket.id
+      })
+
+      // 打印当前玩家列表
+      console.log(`当前玩家列表: ${Object.keys(players).length}个玩家`)
+      for (const id in players) {
+        console.log(`- ${id}: ${players[id].id}`)
+      }
+    }
+  })
+
+  // 处理玩家信息请求
+  socket.on('requestPlayerInfo', (data) => {
+    const requestedId = data.id
+    if (players[requestedId]) {
+      socket.emit('playerInfo', {
+        id: requestedId,
+        player: players[requestedId]
       })
     }
   })

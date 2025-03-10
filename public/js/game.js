@@ -109,6 +109,7 @@ function setupEventListeners() {
   socket.on('playerDied', onPlayerDied)
   socket.on('playerRespawned', onPlayerRespawned)
   socket.on('collisionOccurred', onCollision)
+  socket.on('playerInfo', onPlayerInfo)
 
   // 开始游戏按钮
   startButton.addEventListener('click', startGame)
@@ -119,6 +120,9 @@ function setupEventListeners() {
       startGame()
     }
   })
+
+  // 调试信息
+  console.log('事件监听器设置完成')
 }
 
 // 开始游戏
@@ -144,6 +148,8 @@ function startGame() {
 
 // 游戏状态初始化
 function onGameState(data) {
+  console.log(`收到游戏状态, 玩家数量: ${Object.keys(data.players).length}`)
+
   // 保存世界尺寸
   worldWidth = data.worldWidth
   worldHeight = data.worldHeight
@@ -153,6 +159,7 @@ function onGameState(data) {
 
   // 保存自己的ID
   selfId = data.selfId
+  console.log(`自己的ID: ${selfId}`)
 
   // 创建海洋背景
   createOcean()
@@ -162,11 +169,13 @@ function onGameState(data) {
 
   // 创建所有玩家
   for (const id in data.players) {
+    console.log(`创建玩家: ${id}, 玩家ID: ${data.players[id].id}`)
     createShip(id, data.players[id])
   }
 
   // 更新玩家数量
   updatePlayerCount()
+  console.log(`当前玩家数量: ${Object.keys(ships).length}`)
 
   // 初始化小地图
   initMiniMap()
@@ -320,6 +329,11 @@ function createIslands(islandData) {
 
 // 创建船只
 function createShip(id, playerData) {
+  // 创建船只容器
+  const shipContainer = new PIXI.Container()
+  shipContainer.x = playerData.x
+  shipContainer.y = playerData.y
+
   // 创建船只图形
   const ship = new PIXI.Graphics()
 
@@ -336,10 +350,12 @@ function createShip(id, playerData) {
   ship.drawRect(-5, -5, 10, 10)
   ship.endFill()
 
-  // 设置位置和旋转
-  ship.x = playerData.x
-  ship.y = playerData.y
+  // 设置船只旋转
   ship.rotation = playerData.rotation
+
+  // 添加船只到容器
+  shipContainer.addChild(ship)
+  shipContainer.ship = ship
 
   // 添加玩家ID文本
   const playerText = new PIXI.Text(playerData.id, {
@@ -350,56 +366,80 @@ function createShip(id, playerData) {
   })
   playerText.anchor.set(0.5)
   playerText.y = -30
-  ship.addChild(playerText)
+  shipContainer.addChild(playerText)
 
   // 添加血条
   const healthBar = new PIXI.Graphics()
   healthBar.beginFill(0x00ff00)
   healthBar.drawRect(-20, -20, 40, 5)
   healthBar.endFill()
-  ship.addChild(healthBar)
-  ship.healthBar = healthBar
+  shipContainer.addChild(healthBar)
+  shipContainer.healthBar = healthBar
 
   // 保存玩家数据
-  ship.playerData = playerData
+  shipContainer.playerData = playerData
 
   // 添加到世界
-  worldContainer.addChild(ship)
+  worldContainer.addChild(shipContainer)
 
   // 保存到船只列表
-  ships[id] = ship
+  ships[id] = shipContainer
 
   // 如果是自己的船，设置摄像机跟随
   if (id === selfId) {
-    selfShip = ship
+    selfShip = shipContainer
     centerCamera()
   }
 
-  return ship
+  return shipContainer
 }
 
 // 玩家加入
 function onPlayerJoined(data) {
-  createShip(data.id, data.player)
+  console.log(`玩家加入: ${data.id}, 玩家ID: ${data.player.id}`)
+
+  // 检查玩家是否已存在
+  if (ships[data.id]) {
+    console.log(`玩家已存在，更新位置: ${data.id}`)
+    ships[data.id].x = data.player.x
+    ships[data.id].y = data.player.y
+    ships[data.id].ship.rotation = data.player.rotation
+    ships[data.id].playerData = data.player
+    updateHealthBar(ships[data.id])
+  } else {
+    console.log(`创建新玩家: ${data.id}`)
+    createShip(data.id, data.player)
+  }
+
   updatePlayerCount()
+  console.log(`当前玩家数量: ${Object.keys(ships).length}`)
 }
 
 // 玩家离开
 function onPlayerLeft(data) {
+  console.log(`玩家离开: ${data.id}`)
+
   if (ships[data.id]) {
     worldContainer.removeChild(ships[data.id])
     delete ships[data.id]
     updatePlayerCount()
+    console.log(`当前玩家数量: ${Object.keys(ships).length}`)
   }
 }
 
 // 玩家移动
 function onPlayerMoved(data) {
+  console.log(`玩家移动: ${data.id}, 位置: (${Math.round(data.x)}, ${Math.round(data.y)})`)
+
   if (ships[data.id]) {
     ships[data.id].x = data.x
     ships[data.id].y = data.y
-    ships[data.id].rotation = data.rotation
+    ships[data.id].ship.rotation = data.rotation
     ships[data.id].playerData.speed = data.speed
+  } else {
+    console.log(`找不到移动的玩家: ${data.id}，尝试重新创建`)
+    // 如果找不到玩家，尝试重新创建
+    socket.emit('requestPlayerInfo', { id: data.id })
   }
 }
 
@@ -781,7 +821,7 @@ function gameLoop(delta) {
 function handleInput(delta) {
   if (selfShip.playerData.health <= 0) return
 
-  let rotation = selfShip.rotation
+  let rotation = selfShip.ship.rotation
   let speed = selfShip.playerData.speed
 
   // 旋转控制
@@ -815,7 +855,7 @@ function handleInput(delta) {
 
   selfShip.x += vx
   selfShip.y += vy
-  selfShip.rotation = rotation
+  selfShip.ship.rotation = rotation
   selfShip.playerData.speed = speed
   selfShip.playerData.x = selfShip.x
   selfShip.playerData.y = selfShip.y
@@ -1013,6 +1053,15 @@ function keepInWorld() {
   if (selfShip.x > worldWidth) selfShip.x = worldWidth
   if (selfShip.y < 0) selfShip.y = 0
   if (selfShip.y > worldHeight) selfShip.y = worldHeight
+}
+
+// 处理玩家信息
+function onPlayerInfo(data) {
+  console.log(`收到玩家信息: ${data.id}`)
+  if (!ships[data.id]) {
+    createShip(data.id, data.player)
+    updatePlayerCount()
+  }
 }
 
 // 初始化游戏
