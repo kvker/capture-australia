@@ -146,9 +146,6 @@ function onMouseDown(e) {
 
   // 更新鼠标位置
   updateMousePosition(e)
-
-  // 立即计算并打印鼠标位置和船只位置，用于调试
-  console.log("鼠标按下 - 鼠标位置:", mousePosition, "船只位置:", {x: selfShip.x, y: selfShip.y})
 }
 
 // 鼠标松开事件
@@ -187,11 +184,6 @@ function updateMousePosition(e) {
     x: x - app.screen.width / 2 + selfShip.x,
     y: y - app.screen.height / 2 + selfShip.y
   }
-
-  // 调试输出
-  if (isAimingMode) {
-    console.log("更新鼠标位置:", mousePosition, "船只位置:", {x: selfShip.x, y: selfShip.y})
-  }
 }
 
 // 如果冷却完成，发射炮弹
@@ -224,16 +216,6 @@ function fireCannonIfReady() {
     y: selfShip.y,
     targetX: targetX,
     targetY: targetY
-  })
-
-  // 调试输出
-  console.log("发射炮弹:", {
-    from: {x: selfShip.x, y: selfShip.y},
-    to: {x: targetX, y: targetY},
-    angle: angle,
-    distance: distance,
-    cooldown: shootCooldown,
-    lastShootTime: lastShootTime
   })
 }
 
@@ -489,16 +471,48 @@ function createShip(id, playerData) {
   shipContainer.addChild(ship)
   shipContainer.ship = ship
 
-  // 添加玩家ID文本
-  const playerText = new PIXI.Text(playerData.id, {
+  // 创建玩家ID和血量文本
+  const textStyle = {
     fontFamily: 'Arial',
     fontSize: 12,
     fill: 0xffffff,
     align: 'center'
+  }
+
+  // 创建ID文本
+  const idText = new PIXI.Text(playerData.id, textStyle)
+  idText.anchor.set(1, 0.5) // 右对齐
+  idText.x = -5 // 放在左侧
+  idText.y = -30
+  shipContainer.addChild(idText)
+  shipContainer.idText = idText
+
+  // 创建分隔符
+  const separatorText = new PIXI.Text("-", textStyle)
+  separatorText.anchor.set(0.5, 0.5)
+  separatorText.x = 0
+  separatorText.y = -30
+  shipContainer.addChild(separatorText)
+
+  // 创建当前血量文本（红色）
+  const currentHealthText = new PIXI.Text(playerData.health.toString(), {
+    fontFamily: 'Arial',
+    fontSize: 12,
+    fill: 0xff0000, // 红色
+    align: 'center'
   })
-  playerText.anchor.set(0.5)
-  playerText.y = -30
-  shipContainer.addChild(playerText)
+  currentHealthText.anchor.set(0, 0.5) // 左对齐
+  currentHealthText.x = 5 // 放在右侧
+  currentHealthText.y = -30
+  shipContainer.addChild(currentHealthText)
+  shipContainer.currentHealthText = currentHealthText
+
+  // 创建总血量文本
+  const totalHealthText = new PIXI.Text("/100", textStyle)
+  totalHealthText.anchor.set(0, 0.5) // 左对齐
+  totalHealthText.x = currentHealthText.x + currentHealthText.width // 放在当前血量右侧
+  totalHealthText.y = -30
+  shipContainer.addChild(totalHealthText)
 
   // 添加血条
   const healthBar = new PIXI.Graphics()
@@ -594,9 +608,6 @@ function onPlayerMoved(data) {
 
 // 玩家射击
 function onPlayerShot(data) {
-  // 调试输出
-  console.log("收到射击事件:", data)
-
   // 创建子弹
   const bullet = createBullet(data.x, data.y, data.targetX, data.targetY, data.id)
 
@@ -691,6 +702,17 @@ function updateHealthBar(ship) {
   ship.healthBar.beginFill(color)
   ship.healthBar.drawRect(-20, -20, width, 5)
   ship.healthBar.endFill()
+
+  // 更新当前血量文本
+  if (ship.currentHealthText) {
+    ship.currentHealthText.text = health.toString()
+
+    // 更新总血量文本的位置
+    const totalHealthText = ship.currentHealthText.nextSibling
+    if (totalHealthText) {
+      totalHealthText.x = ship.currentHealthText.x + ship.currentHealthText.width
+    }
+  }
 }
 
 // 玩家死亡
@@ -1034,9 +1056,6 @@ function handleInput(delta) {
     const dy = mousePosition.y - selfShip.y
     const targetRotation = Math.atan2(dy, dx)
 
-    // 调试输出
-    console.log("瞄准计算 - 目标角度:", targetRotation, "当前角度:", rotation, "差值:", targetRotation - rotation)
-
     // 计算最短旋转方向
     let rotationDiff = targetRotation - rotation
 
@@ -1113,11 +1132,6 @@ function handleInput(delta) {
 
 // 更新所有子弹
 function updateBullets(delta) {
-  // 调试输出子弹数量
-  if (bullets.length > 0) {
-    console.log("当前子弹数量:", bullets.length)
-  }
-
   for (let i = bullets.length - 1; i >= 0; i--) {
     const bullet = bullets[i]
 
@@ -1141,9 +1155,6 @@ function updateBullets(delta) {
       // 移除子弹
       worldContainer.removeChild(bullet)
       bullets.splice(i, 1)
-
-      // 调试输出
-      console.log("子弹到达目标，创建爆炸效果")
       continue
     }
 
@@ -1210,11 +1221,6 @@ function checkSplashDamage(bullet) {
           id: id,
           damage: finalDamage
         })
-
-        // 如果是自己的炮弹打到自己，记录日志
-        if (bullet.shooterId === id) {
-          console.log("自己的炮弹溅射伤害到自己，造成伤害:", finalDamage)
-        }
       }
     }
   }
