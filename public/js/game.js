@@ -74,9 +74,19 @@ function initGame() {
 
 // 设置事件监听
 function setupEventListeners() {
+  // 自动聚焦输入框
+  setTimeout(() => {
+    playerId.focus()
+  }, 500)
+
   // 键盘事件
   window.addEventListener('keydown', (e) => {
     keys[e.key.toLowerCase()] = true
+
+    // 如果在登录界面按下回车键，则开始游戏
+    if (e.key === 'Enter' && loginScreen.style.display !== 'none') {
+      startGame()
+    }
   })
 
   window.addEventListener('keyup', (e) => {
@@ -102,6 +112,13 @@ function setupEventListeners() {
 
   // 开始游戏按钮
   startButton.addEventListener('click', startGame)
+
+  // 输入框回车事件
+  playerId.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      startGame()
+    }
+  })
 }
 
 // 开始游戏

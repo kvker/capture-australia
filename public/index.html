@@ -73,6 +73,7 @@
       padding: 10px;
       border-radius: 5px;
       z-index: 5;
+      display: none;
     }
     #miniMap {
       position: absolute;
@@ -84,6 +85,7 @@
       border: 2px solid white;
       border-radius: 5px;
       z-index: 5;
+      display: none;
     }
     #worldBoundaryInfo {
       position: absolute;
@@ -95,6 +97,22 @@
       padding: 10px;
       border-radius: 5px;
       z-index: 5;
+      display: none;
+    }
+    .game-title {
+      color: #0a2a43;
+      margin-bottom: 5px;
+    }
+    .game-subtitle {
+      color: #666;
+      margin-top: 0;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .input-hint {
+      color: #666;
+      font-size: 12px;
+      margin-top: 5px;
     }
   </style>
 </head>
@@ -103,21 +121,22 @@
   <div id="gameContainer">
     <div id="loginScreen">
       <div id="loginForm">
-        <h1>澳大利亚沿海海战</h1>
+        <h1 class="game-title">澳大利亚沿海海战</h1>
+        <p class="game-subtitle">多人在线海战游戏</p>
         <p>输入你的ID加入战斗</p>
-        <input type="text" id="playerId" placeholder="输入你的ID" maxlength="10">
-        <br>
+        <input type="text" id="playerId" placeholder="输入你的ID" maxlength="10" autofocus>
+        <p class="input-hint">按回车键或点击按钮开始游戏</p>
         <button id="startButton">开始游戏</button>
       </div>
     </div>
-    <div id="gameInfo" style="display: none;">
+    <div id="gameInfo">
       <div>血量: <span id="healthValue">100</span></div>
       <div>速度: <span id="speedValue">0</span></div>
       <div>在线玩家: <span id="playerCount">0</span></div>
       <div>坐标: <span id="positionValue">(0, 0)</span></div>
     </div>
-    <div id="miniMap" style="display: none;"></div>
-    <div id="worldBoundaryInfo" style="display: none;">
+    <div id="miniMap"></div>
+    <div id="worldBoundaryInfo">
       <div>世界大小: <span id="worldSizeValue">3000 x 2000</span></div>
       <div>边界: 白色线条</div>
     </div>
